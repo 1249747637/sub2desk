@@ -1,6 +1,8 @@
 # Sub2Desk
 
 Sub2Desk 是一个面向 sub2api 管理员的 Windows 桌面工具，用来快速把上游 OpenAI/Anthropic 兼容账号添加到指定分组。项目使用 Tauri 2、Vue 3 和 TypeScript 构建。
+<img width="1618" height="1072" alt="image" src="https://github.com/user-attachments/assets/973260f4-dc49-44f2-a471-3a12d31d4771" />
+
 
 ## 社区
 ![认可linux.do](https://ld.xh.do/ld-badge.svg)
@@ -36,6 +38,7 @@ release/Sub2Desk.exe
 - 后端管理地址：只填 origin，例如 `https://api.example.com`
 - 管理员 API Key：sub2api 后台的 Admin API Key
 - 主题：日间模式或夜间模式
+<img width="693" height="469" alt="image" src="https://github.com/user-attachments/assets/9fac2791-c2f7-46ba-a237-c7cacc0bb269" />
 
 后端管理地址不要填写：
 
