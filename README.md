@@ -4,6 +4,7 @@ Sub2Desk 是一个面向 sub2api 管理员的 Windows 桌面工具，用来快�
 
 ## 社区
 ![认可linux.do](https://ld.xh.do/ld-badge.svg)
+
 感谢 [LINUX DO 社区](https://linux.do/) ，这个工具主要面向 sub2api 管理员的日常账号维护场景，也欢迎在社区里交流使用问题、部署坑和改进建议。
 
 ## 功能
