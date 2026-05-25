@@ -72,6 +72,8 @@ https://你的域名
 
 - 设置里的后端地址是否是 sub2api 后端 origin。
 - 管理员 API Key 是否是 Admin API Key，不是用户 API Key。
+- <img width="1855" height="855" alt="image" src="https://github.com/user-attachments/assets/3cab6eea-7b8d-462a-b4bb-505d0f3b1e22" />
+
 - 选择的分组平台是否和 Profile 平台一致。
 - sub2api 后台账号列表是否有筛选条件。
 - 反代是否把 `POST /api/v1/admin/accounts` 改写成了 `GET` 或转到了前端页面。
