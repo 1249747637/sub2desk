@@ -48,6 +48,7 @@ interface Toast {
   id: number;
   kind: "success" | "error" | "info";
   text: string;
+  persistent?: boolean;
 }
 
 const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
@@ -70,6 +71,7 @@ const ui = reactive({
   renameDraft: "",
 });
 const toasts = ref<Toast[]>([]);
+const modelSearch = ref("");
 const saveTimer = ref<number | null>(null);
 let loaded = false;
 let toastId = 1;
@@ -95,15 +97,25 @@ const disabledModels = computed(() =>
   activeProfile.value.models.filter((model) => !model.enabled),
 );
 
+const filteredModels = computed(() => {
+  const keyword = modelSearch.value.trim().toLocaleLowerCase();
+  if (!keyword) return activeProfile.value.models;
+  return activeProfile.value.models.filter((model) =>
+    model.id.toLocaleLowerCase().includes(keyword),
+  );
+});
+
+const accountNamePreview = computed(
+  () => accountNameFromKey(activeProfile.value.apiKey) || "填写 Key 后显示",
+);
+
 const canSubmit = computed(() => {
   const profile = activeProfile.value;
   return Boolean(
     profile?.name.trim() &&
-      profile?.accountName !== undefined &&
       profile?.baseUrl.trim() &&
       profile?.apiKey.trim() &&
       profile?.groupId &&
-      enabledModels.value.length > 0 &&
       state.value.settings.backendBaseUrl.trim() &&
       state.value.settings.adminApiKey.trim(),
   );
@@ -149,6 +161,13 @@ watch(
     activeProfile.value.groupId = null;
     groups.value = [];
     await refreshGroups(false);
+  },
+);
+
+watch(
+  () => activeProfile.value?.id,
+  () => {
+    modelSearch.value = "";
   },
 );
 
@@ -263,7 +282,14 @@ function setPlatform(platform: Platform) {
 }
 
 async function refreshGroups(showSuccess = true) {
-  if (!activeProfile.value || !state.value.settings.backendBaseUrl.trim()) return;
+  if (
+    !activeProfile.value ||
+    !state.value.settings.backendBaseUrl.trim() ||
+    !state.value.settings.adminApiKey.trim()
+  ) {
+    if (showSuccess) pushToast("error", "请先在设置里填写后端地址和管理员 API Key");
+    return;
+  }
   if (!isTauri) return;
   loading.groups = true;
   try {
@@ -273,7 +299,7 @@ async function refreshGroups(showSuccess = true) {
     });
     if (showSuccess) pushToast("success", `已加载 ${groups.value.length} 个分组`);
   } catch (error) {
-    pushToast("error", toErrorMessage(error));
+    if (showSuccess) pushToast("error", toErrorMessage(error));
   } finally {
     loading.groups = false;
   }
@@ -301,15 +327,22 @@ async function fetchModelList() {
 
 async function testModel(model: ModelItem) {
   loading.testingModel = model.id;
+  const startedAt = performance.now();
   try {
     if (!isTauri) throw new Error("请在 Tauri 桌面环境中测试模型");
     const result = await invoke<{ message: string }>("test_model", {
       profile: activeProfile.value,
       modelId: model.id,
     });
-    pushToast("success", `${model.id}: ${result.message}`);
+    const elapsedMs = performance.now() - startedAt;
+    pushToast("success", `${model.id} · ${formatDuration(elapsedMs)}\n${result.message}`, {
+      persistent: true,
+    });
   } catch (error) {
-    pushToast("error", `${model.id}: ${toErrorMessage(error)}`);
+    const elapsedMs = performance.now() - startedAt;
+    pushToast("error", `${model.id} · ${formatDuration(elapsedMs)}\n${toErrorMessage(error)}`, {
+      persistent: true,
+    });
   } finally {
     loading.testingModel = "";
   }
@@ -319,9 +352,15 @@ function toggleModel(model: ModelItem) {
   model.enabled = !model.enabled;
 }
 
+function invertModels() {
+  activeProfile.value.models.forEach((model) => {
+    model.enabled = !model.enabled;
+  });
+}
+
 function openSubmitConfirm() {
   if (!canSubmit.value) {
-    pushToast("error", "请补全后端地址、管理员 Key、分组、上游 Key，并至少选择一个模型");
+    pushToast("error", "请补全后端地址、管理员 Key、分组和上游 Key");
     return;
   }
   ui.confirmOpen = true;
@@ -364,17 +403,34 @@ async function saveState() {
   }
 }
 
-function pushToast(kind: Toast["kind"], text: string) {
+function pushToast(kind: Toast["kind"], text: string, options: { persistent?: boolean } = {}) {
   const id = toastId++;
-  toasts.value.push({ id, kind, text });
-  window.setTimeout(() => {
-    toasts.value = toasts.value.filter((toast) => toast.id !== id);
-  }, kind === "error" ? 6500 : 4200);
+  toasts.value.push({ id, kind, text, persistent: options.persistent });
+  if (!options.persistent) {
+    window.setTimeout(() => {
+      dismissToast(id);
+    }, kind === "error" ? 6500 : 4200);
+  }
+}
+
+function dismissToast(id: number) {
+  toasts.value = toasts.value.filter((toast) => toast.id !== id);
 }
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function accountNameFromKey(apiKey: string) {
+  const compact = apiKey.trim();
+  if (compact.length > 0) return [...compact].slice(-6).join("");
+  return "";
 }
 </script>
 
@@ -462,8 +518,9 @@ function toErrorMessage(error: unknown) {
           <label>
             <span>账号名称</span>
             <input
-              v-model.trim="activeProfile.accountName"
-              placeholder="留空则发送时自动使用时间"
+              :value="accountNamePreview"
+              readonly
+              title="发送时固定使用 API Key 末尾 6 个字符"
             />
           </label>
           <label>
@@ -472,7 +529,7 @@ function toErrorMessage(error: unknown) {
           </label>
           <label>
             <span>API Key</span>
-            <input v-model.trim="activeProfile.apiKey" type="password" placeholder="上游账号 Key" />
+            <input v-model.trim="activeProfile.apiKey" type="text" placeholder="上游账号 Key" />
           </label>
           <label>
             <span>分组</span>
@@ -521,24 +578,53 @@ function toErrorMessage(error: unknown) {
         <div class="section-head">
           <div>
             <h2>模型</h2>
-            <p>{{ enabledModels.length }} 已选，{{ disabledModels.length }} 已禁用</p>
+            <p v-if="activeProfile.models.length > 0">
+              {{ enabledModels.length }} 已选，{{ disabledModels.length }} 已禁用
+            </p>
+            <p v-else>可跳过获取模型列表直接发送</p>
           </div>
-          <button
-            class="text-button"
-            type="button"
-            @click="activeProfile.models.forEach((model) => (model.enabled = true))"
-            :disabled="activeProfile.models.length === 0"
-          >
-            全选
-          </button>
+          <div class="inline-actions">
+            <button
+              class="text-button"
+              type="button"
+              @click="activeProfile.models.forEach((model) => (model.enabled = true))"
+              :disabled="activeProfile.models.length === 0"
+            >
+              全选
+            </button>
+            <button
+              class="text-button"
+              type="button"
+              @click="invertModels"
+              :disabled="activeProfile.models.length === 0"
+            >
+              反选
+            </button>
+          </div>
         </div>
 
-        <div class="model-list" :class="{ empty: activeProfile.models.length === 0 }">
+        <div v-if="activeProfile.models.length > 0" class="model-search">
+          <input
+            v-model="modelSearch"
+            type="search"
+            placeholder="搜索模型"
+            aria-label="搜索模型"
+          />
+          <span>{{ filteredModels.length }} / {{ activeProfile.models.length }}</span>
+        </div>
+
+        <div
+          class="model-list"
+          :class="{ empty: activeProfile.models.length === 0 || filteredModels.length === 0 }"
+        >
           <p v-if="activeProfile.models.length === 0" class="empty-text">
-            点击“获取模型列表”后，模型会出现在这里并默认全选。
+            可以直接发送账号。获取模型列表后可选择要写入 model_mapping 的模型。
+          </p>
+          <p v-else-if="filteredModels.length === 0" class="empty-text">
+            没有匹配的模型。
           </p>
           <div
-            v-for="model in activeProfile.models"
+            v-for="model in filteredModels"
             :key="model.id"
             class="model-row"
             :class="{ disabled: !model.enabled }"
@@ -569,9 +655,9 @@ function toErrorMessage(error: unknown) {
         <strong>{{ activeProfile.name }}</strong>
         <span>
           {{ platformLabel }} · 账号
-          {{ activeProfile.accountName || "自动时间命名" }} · 分组
+          {{ accountNamePreview }} · 分组
           {{ groups.find((group) => group.id === activeProfile.groupId)?.name ?? "未选择" }} ·
-          {{ enabledModels.length }} 个模型 · 优先级 {{ activeProfile.priority || 1 }}
+          {{ activeProfile.models.length > 0 ? `${enabledModels.length} 个模型` : "未指定模型" }} · 优先级 {{ activeProfile.priority || 1 }}
         </span>
       </div>
       <button class="primary" type="button" @click="openSubmitConfirm" :disabled="loading.submit">
@@ -631,7 +717,7 @@ function toErrorMessage(error: unknown) {
           </div>
           <div>
             <dt>账号名称</dt>
-            <dd>{{ activeProfile.accountName || "自动使用发送时间" }}</dd>
+            <dd>{{ accountNamePreview }}</dd>
           </div>
           <div>
             <dt>平台</dt>
@@ -643,7 +729,9 @@ function toErrorMessage(error: unknown) {
           </div>
           <div>
             <dt>模型</dt>
-            <dd>{{ enabledModels.length }} 个已选择</dd>
+            <dd>
+              {{ activeProfile.models.length > 0 ? `${enabledModels.length} 个已选择` : "未获取模型列表，不写入 model_mapping" }}
+            </dd>
           </div>
           <div>
             <dt>优先级</dt>
@@ -664,8 +752,24 @@ function toErrorMessage(error: unknown) {
     </aside>
 
     <div class="toast-stack" aria-live="polite">
-      <div v-for="toast in toasts" :key="toast.id" class="toast" :class="toast.kind">
-        {{ toast.text }}
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="toast"
+        :class="[toast.kind, { persistent: toast.persistent }]"
+        role="status"
+        @click="dismissToast(toast.id)"
+      >
+        <span>{{ toast.text }}</span>
+        <button
+          v-if="toast.persistent"
+          class="toast-close"
+          type="button"
+          aria-label="关闭消息"
+          @click.stop="dismissToast(toast.id)"
+        >
+          ×
+        </button>
       </div>
     </div>
   </main>
@@ -968,6 +1072,13 @@ p,
   padding: 0 12px;
 }
 
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .switch-row {
   align-content: start;
 }
@@ -988,6 +1099,20 @@ p,
 
 .actions-row.end {
   justify-content: flex-end;
+}
+
+.model-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.model-search span {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .model-list {
@@ -1138,6 +1263,10 @@ p,
 }
 
 .toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
   border-radius: 8px;
@@ -1146,6 +1275,30 @@ p,
   background: var(--surface);
   box-shadow: var(--shadow);
   word-break: break-word;
+  white-space: pre-line;
+}
+
+.toast.persistent {
+  cursor: pointer;
+}
+
+.toast-close {
+  width: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  align-self: start;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  color: var(--text);
+  background: var(--surface-soft);
 }
 
 .toast.error {

@@ -1,6 +1,6 @@
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, LOCATION};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 use uuid::Uuid;
 
@@ -307,27 +307,29 @@ async fn submit_profile(settings: Settings, profile: Profile) -> Result<SubmitRe
     validate_provider_profile(&profile)?;
     let group_id = profile.group_id.ok_or_else(|| "请选择分组".to_string())?;
     let enabled_models: Vec<&ModelItem> = profile.models.iter().filter(|model| model.enabled).collect();
-    if enabled_models.is_empty() {
-        return Err("至少选择一个模型".into());
-    }
     let account_name = normalized_account_name(&profile);
 
     let model_mapping: BTreeMap<String, String> = enabled_models
         .into_iter()
         .map(|model| (model.id.clone(), model.id.clone()))
         .collect();
+    let mut credentials = Map::new();
+    credentials.insert("api_key".into(), json!(profile.api_key.trim()));
+    credentials.insert("base_url".into(), json!(profile.base_url.trim()));
+    credentials.insert("pool_mode".into(), json!(profile.pool_mode));
+    credentials.insert(
+        "pool_mode_retry_count".into(),
+        json!(profile.pool_mode_retry_count),
+    );
+    if !model_mapping.is_empty() {
+        credentials.insert("model_mapping".into(), json!(model_mapping));
+    }
 
     let body = json!({
         "name": account_name,
         "platform": platform_name(&profile.platform),
         "type": "apikey",
-        "credentials": {
-            "api_key": profile.api_key.trim(),
-            "base_url": profile.base_url.trim(),
-            "pool_mode": profile.pool_mode,
-            "pool_mode_retry_count": profile.pool_mode_retry_count,
-            "model_mapping": model_mapping
-        },
+        "credentials": credentials,
         "extra": {},
         "group_ids": [group_id],
         "concurrency": 1,
@@ -642,10 +644,19 @@ fn platform_name(platform: &Platform) -> &'static str {
 }
 
 fn normalized_account_name(profile: &Profile) -> String {
-    let configured = profile.account_name.trim();
-    if !configured.is_empty() {
-        return configured.to_string();
+    let compact = profile.api_key.trim();
+    let suffix: String = compact
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    if !suffix.is_empty() {
+        return suffix;
     }
+
     let timestamp = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| Uuid::new_v4().to_string())
