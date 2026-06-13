@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Sub2Desk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.shadder2k.sub2desk",
   "build": {
     "beforeDevCommand": "npm run dev",

@@ -1,6 +1,6 @@
 [package]
 name = "sub2desk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Sub2Desk desktop admin tool"
 authors = ["you"]
 edition = "2021"
@@ -28,4 +28,3 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-
